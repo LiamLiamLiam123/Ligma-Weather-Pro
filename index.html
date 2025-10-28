@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ligma Weather Pro</title>
+<style>
+  body {
+    background: #00ff1a;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    margin: 0;
+    color: #fff;
+    transition: background 0.5s, color 0.5s;
+  }
+  body.night { background: #0b1d2b; }
+  #weather-container {
+    background: rgba(7, 87, 226, 0.373);
+    width: 420px;
+    max-width: 95vw;
+    padding: 20px;
+    border-radius: 15px;
+    box-shadow: 0 8px 32px rgba(255, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    text-align: center;
+    color: #fff;
+  }
+  h2, p { color: #fff; }
+  input, select, button {
+    width: calc(100% - 16px);
+    padding: 8px;
+    box-sizing: border-box;
+    border-radius: 10px;
+    border: 1px solid white;
+    margin-top: 10px;
+    color: #000;
+  }
+  button { background: #debff4; color: white; border: none; cursor: pointer; margin-top: 10px; width: 100px; font-size: 15px; transition: all 0.3s ease; }
+  button:hover { background: #8b48d7; transform: scale(1.05); }
+  #weather-icon { width: 120px; height: 120px; display: none; margin: 0 auto; }
+  #temp-div p { font-size: 40px; margin-top: -10px; }
+  #small-info span { margin: 0 5px; font-size: 14px; }
+  #weekly-forecast { margin-top: 20px; display: flex; justify-content: space-between; overflow-x: auto; }
+  .day-item { flex: 0 0 auto; width: 80px; display: flex; flex-direction: column; align-items: center; color: #fff; margin-right: 10px; }
+  .day-item img { width: 30px; height: 30px; margin-bottom: 5px; }
+  .temps { font-size: 12px; margin-top: 3px; }
+  #map-view { margin-top: 20px; display: none; }
+  iframe { width: 100%; height: 400px; border: none; border-radius: 10px; }
+  #current-time p { margin: 5px 0 0 0; font-size: 18px; color: #fff; }
+  #unit-buttons button { width: 30%; margin: 5px 2%; }
+  #alerts { margin-top: 10px; color: #ff5555; font-weight: bold; }
+</style>
+</head>
+<body>
+<div id="weather-container">
+  <h2>Ligma Weather Pro</h2>
+
+  <input type="text" id="city" placeholder="Enter city" />
+  <button onclick="getWeather()">Search</button>
+
+  <div id="unit-buttons">
+    <button onclick="setUnit('metric')">°C</button>
+    <button onclick="setUnit('imperial')">°F</button>
+    <button onclick="setUnit('standard')">K</button>
+  </div>
+
+  <select id="view-mode" onchange="changeView()">
+    <option value="weather">5-Day Forecast</option>
+    <option value="windy">Windy Map</option>
+    <option value="radar">Radar View</option>
+    <option value="satellite">Satellite View</option>
+  </select>
+
+  <div id="weather-section">
+    <img id="weather-icon" />
+    <div id="temp-div"></div>
+    <div id="small-info"></div>
+    <div id="weather-info"></div>
+    <div id="current-time"></div>
+    <div id="alerts"></div>
+    <div id="weekly-forecast"></div>
+  </div>
+
+  <div id="map-view">
+    <iframe id="map-frame" loading="lazy"></iframe>
+  </div>
+</div>
+
+<script>
+let timeInterval;
+let currentUnit = 'metric';
+
+function setUnit(unit) {
+  currentUnit = unit;
+  const city = document.getElementById('city').value.trim();
+  if(city) getWeather();
+}
+
+async function getWeather() {
+  const apiKey = 'ZmUyYjU4YjllZmM5YTFmNDRjNzkzNzQ5MmJiZjI1YzI=';
+  const realKey = atob(apiKey);
+  const city = document.getElementById('city').value.trim();
+  if (!city) return alert('Enter a city.');
+
+  document.getElementById('view-mode').value = 'weather';
+  changeView();
+
+  try {
+    const res = await fetch(`https://api.openweathermap.org/data/2.5/forecast?q=${encodeURIComponent(city)}&units=${currentUnit}&appid=${realKey}`);
+    const data = await res.json();
+
+    if (data.cod != "200" && data.cod != 200) {
+      alert("City not found or forecast unavailable");
+      console.error(data);
+      return;
+    }
+
+    const coords = data.city.coord;
+    displayFiveDayForecast(city, data.list, data.city.timezone);
+    updateMapOverlay(coords.lat, coords.lon);
+    startClock(data.city.timezone);
+    setNightMode(data.city.timezone);
+    fetchAlerts(coords.lat, coords.lon, realKey);
+  } catch (err) {
+    console.error('Weather fetch failed:', err);
+    alert("Failed to fetch weather");
+  }
+}
+
+function setNightMode(offsetSec) {
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset()*60000;
+  const cityTime = new Date(utc + offsetSec*1000);
+  const hour = cityTime.getHours();
+  if(hour >= 19 || hour < 6) document.body.classList.add('night');
+  else document.body.classList.remove('night');
+}
+
+async function fetchAlerts(lat, lon, apiKey){
+  try{
+    const res = await fetch(`https://api.openweathermap.org/data/3.0/onecall?lat=${lat}&lon=${lon}&exclude=minutely,hourly,daily&appid=${apiKey}`);
+    const data = await res.json();
+    const alertsDiv = document.getElementById('alerts');
+    if(data.alerts && data.alerts.length>0){
+      alertsDiv.innerHTML = data.alerts.map(a=>a.event).join(', ');
+    } else alertsDiv.innerHTML = '';
+  }catch(e){ console.error('Alerts fetch failed', e);}
+}
+
+function startClock(offsetSec=0){
+  clearInterval(timeInterval);
+  const timeDiv = document.getElementById('current-time');
+  function update(){
+    const now = new Date();
+    const utc = now.getTime() + now.getTimezoneOffset()*60000;
+    const cityTime = new Date(utc + offsetSec*1000);
+    let hours = cityTime.getHours();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const minutes = cityTime.getMinutes().toString().padStart(2,'0');
+    const seconds = cityTime.getSeconds().toString().padStart(2,'0');
+    timeDiv.innerHTML = `<p>${hours}:${minutes}:${seconds} ${ampm}</p>`;
+  }
+  update();
+  timeInterval=setInterval(update,1000);
+}
+
+function displayFiveDayForecast(city,list,timezone){
+  const tempDiv = document.getElementById('temp-div');
+  const info = document.getElementById('weather-info');
+  const iconEl = document.getElementById('weather-icon');
+  const weekDiv = document.getElementById('weekly-forecast');
+  const smallInfo = document.getElementById('small-info');
+
+  const dailyMap = {};
+  list.forEach(item=>{
+    const date = new Date(item.dt*1000).toDateString();
+    if(!dailyMap[date]) dailyMap[date]=[];
+    dailyMap[date].push(item);
+  });
+  const dailyList = Object.values(dailyMap).slice(0,5);
+
+  const today = dailyList[0][Math.floor(dailyList[0].length/2)];
+  const temps = dailyList[0].map(x=>x.main.temp);
+  const todayTemp = Math.round(temps.reduce((s,t)=>s+t,0)/temps.length);
+  const todayDesc = today.weather[0].description;
+  const todayIcon = today.weather[0].icon;
+  const feelsLike = Math.round(today.main.feels_like || todayTemp);
+  const wind = today.wind.speed;
+  const humidity = today.main.humidity;
+  const pressure = today.main.pressure;
+
+  iconEl.src = `https://openweathermap.org/img/wn/${todayIcon}@4x.png`;
+  iconEl.style.display = 'block';
+  tempDiv.innerHTML = `<p>${todayTemp}°${currentUnit==='imperial'?'F':currentUnit==='standard'?'K':'C'}</p>`;
+  smallInfo.innerHTML = `<span>💨 ${wind}${currentUnit==='imperial'?' mph':' m/s'}</span> <span>💧 ${humidity}%</span> <span>🌡️ ${pressure} hPa</span> <span>Feels Like: ${feelsLike}°${currentUnit==='imperial'?'F':'C'}</span>`;
+  info.innerHTML = `<p>${city}</p><p>${todayDesc}</p>`;
+
+  weekDiv.innerHTML = '';
+  dailyList.forEach(dayArr=>{
+    const dayData = dayArr[Math.floor(dayArr.length/2)];
+    const d = new Date(dayData.dt*1000);
+    const weekday = d.toLocaleDateString('en-US',{weekday:'short'});
+    const icon = dayData.weather[0].icon;
+    const temps = dayArr.map(x=>x.main.temp);
+    const tempAvg = Math.round(temps.reduce((s,t)=>s+t,0)/temps.length);
+    const tempMin = Math.round(Math.min(...temps));
+    const tempMax = Math.round(Math.max(...temps));
+    const iconUrl = `https://openweathermap.org/img/wn/${icon}.png`;
+    const el = document.createElement('div');
+    el.classList.add('day-item');
+    el.innerHTML = `<span>${weekday}</span><img src="${iconUrl}"><span>${tempAvg}°</span><span class="temps">H:${tempMax}° L:${tempMin}°</span>`;
+    weekDiv.appendChild(el);
+  });
+}
+
+function changeView() {
+  const mode = document.getElementById('view-mode').value;
+  const weather = document.getElementById('weather-section');
+  const map = document.getElementById('map-view');
+  if(mode==='weather'){ weather.style.display='block'; map.style.display='none'; }
+  else{ weather.style.display='none'; map.style.display='block'; updateMapOverlay(); }
+}
+
+function updateMapOverlay(lat=-33.8688, lon=151.2093){
+  const mapFrame = document.getElementById('map-frame');
+  const mode = document.getElementById('view-mode').value;
+  let overlay='temp';
+  if(mode==='radar') overlay='radar';
+  if(mode==='satellite') overlay='satellite';
+  if(mode==='windy') overlay='wind';
+  mapFrame.src = `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}&zoom=6&level=surface&overlay=${overlay}&menu=true`;
+}
+</script>
+</body>
+</html>
